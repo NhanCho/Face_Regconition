@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition Attendance System</title>
+    <link rel="stylesheet" href="../static/style.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Face Recognition Attendance System</h1>
+        </header>
+        <main>
+            <div class="video-container">
+                <h2>Live Camera Feed</h2>
+                <div class="video-wrapper">
+                    <img src="{{ url_for('video_feed') }}" alt="Video Feed">
+                </div>
+                <div id="success-message"></div>
+            </div>
+            <div class="controls">
+                <div class="week-selector">
+                    <h2>Select Week</h2>
+                    <select id="weekSelector">
+                        {% for i in range(1, 16) %}
+                        <option value="{{ i }}">Week {{ i }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button id="saveWeekButton">Save Week</button>
+                <button id="resetButton">Reset</button>
+            </div>
+            <div class="attendance-table">
+                <h2>Attendance Log</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            {% for i in range(1, 16) %}
+                            <th>Week {{ i }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in students %}
+                        <tr>
+                            <td>{{ student }}</td>
+                            {% for i in range(15) %}
+                            <td id="{{ student }}-week{{ i+1 }}">
+                                <img src="../static/images/unchecked.png" alt="Absent" class="attendance-icon">
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+    <script>
+        const eventSource = new EventSource('/attendance_log_stream');
+
+        function updateAttendanceTable(attendance) {
+            for (const student in attendance) {
+                for (let i = 0; i < 15; i++) {
+                    const cell = document.getElementById(`${student}-week${i + 1}`);
+                    if (cell) {
+                        const previousStatus = cell.querySelector('img').alt === 'Present' ? 1 : 0;
+                        const status = attendance[student][i];
+                        const imgSrc = status == 1 ? '../static/images/yes.png' : '../static/images/unchecked.png';
+                        cell.innerHTML = `<img src="${imgSrc}" alt="${status == 1 ? 'Present' : 'Absent'}" class="attendance-icon">`;
+                        if (status == 1 && previousStatus == 0) {
+                            showSuccessMessage();
+                        }
+                    }
+                }
+            }
+        }
+
+        eventSource.onmessage = function (event) {
+            const attendance = JSON.parse(event.data);
+            updateAttendanceTable(attendance);
+        };
+
+        function showSuccessMessage() {
+            const successMessage = document.getElementById('success-message');
+            successMessage.innerText = "Success!";
+            successMessage.style.color = '#4CAF50';
+            setTimeout(() => {
+                successMessage.innerText = "";
+            }, 3000);  // Hide message after 3 seconds
+        }
+
+        const weekSelector = document.getElementById('weekSelector');
+        weekSelector.addEventListener('change', function () {
+            const selectedWeek = this.value;
+            $.ajax({
+                url: '/set_week',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ week: selectedWeek }),
+                success: function (data) {
+                    console.log(`Week set to: ${data.current_week}`);
+                }
+            });
+        });
+
+        const saveWeekButton = document.getElementById('saveWeekButton');
+        saveWeekButton.addEventListener('click', function () {
+            const confirmSave = confirm("Are you sure you want to save this week?");
+            if (confirmSave) {
+                const selectedWeek = weekSelector.value;
+                $.ajax({
+                    url: '/save_week',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ week: selectedWeek }),
+                    success: function (data) {
+                        if (data.status === 'success') {
+                            document.querySelector(`#weekSelector option[value="${selectedWeek}"]`).disabled = true;
+                            showSuccessMessage();
+                        }
+                    }
+                });
+            }
+        });
+
+        const resetButton = document.getElementById('resetButton');
+        resetButton.addEventListener('click', function () {
+            const confirmReset = confirm("Are you sure you want to reset the attendance?");
+            if (confirmReset) {
+                $.ajax({
+                    url: '/reset_attendance',
+                    type: 'POST',
+                    success: function (data) {
+                        showSuccessMessage();
+                        // Reset attendance table in the UI
+                        document.querySelectorAll('.attendance-icon').forEach(img => {
+                            img.src = '../static/images/unchecked.png';
+                            img.alt = 'Absent';
+                        });
+                        document.querySelectorAll('#weekSelector option').forEach(option => {
+                            option.disabled = false;
+                        });
+                    }
+                });
+            }
+        });
+
+        $(document).ready(function () {
+            // Fetch the saved weeks and disable them
+            $.ajax({
+                url: '/get_saved_weeks',
+                type: 'GET',
+                success: function (data) {
+                    data.saved_weeks.forEach(week => {
+                        document.querySelector(`#weekSelector option[value="${week}"]`).disabled = true;
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
